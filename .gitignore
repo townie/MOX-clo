@@ -1,0 +1,74 @@
+__pycache__/
+__pycache__/ifconfig -a.
+.idea/
+.idea/*
+.DS_Store
+.scannerwork
+.scannerwork/*
+moxi/homebrew/
+moxi/homebrew/*
+mox_backend/tmpdata
+mox_backend/tmpdata/*
+mox_backend/mox_backend/static/*
+virtualenv/*
+*cache_manifest.json
+spanner-dev-key.json
+.vscode/*
+*.py[cod]
+
+# C extensions
+*.so
+
+# Packages
+*.egg
+*.egg-info
+build
+eggs
+parts
+bin
+var
+sdist
+develop-eggs
+.installed.cfg
+lib
+lib64
+
+# Installer logs
+pip-log.txt
+
+# Unit test / coverage reports
+.coverage
+.tox
+nosetests.xml
+
+# Translations
+*.mo
+
+# Mr Developer
+.mr.developer.cfg
+.project
+.pydevproject
+
+# Complexity
+output/*.html
+output/*/index.html
+
+# Sphinx
+docs/_build
+
+.webassets-cache
+
+# Virtualenvs
+env/
+
+# npm
+/node_modules/
+
+# webpack-built files
+/mox_backend/static/build/
+
+# Localstorage for data
+/mox_backend/data/
+
+# Configuration
+.env
