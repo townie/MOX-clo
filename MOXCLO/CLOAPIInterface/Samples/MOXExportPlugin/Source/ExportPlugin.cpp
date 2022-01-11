@@ -16,29 +16,13 @@
 #include <ctime>
 #include <iostream>
 #include <unistd.h>
-
+#include <regex>
 
 
 using namespace std;
 using namespace CLOAPI;
 
-static std::string base64_encode(const std::string &in) {
-
-	std::string out;
-
-	int val = 0, valb = -6;
-	for (unsigned char c : in) {
-		val = (val << 8) + c;
-		valb += 8;
-		while (valb >= 0) {
-			out.push_back("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[(val >> valb) & 0x3F]);
-			valb -= 6;
-		}
-	}
-	if (valb > -6) out.push_back("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[((val << 8) >> (valb + 8)) & 0x3F]);
-	while (out.size() % 4) out.push_back('=');
-	return out;
-}
+// Utility Functions
 
 string getHomePath()
 {
@@ -68,20 +52,116 @@ string getHomePath()
 	return homePath;
 }
 
+string GetEnv()
+{
+    // Make this dynamic
+    // return "prod";
+    return "dev";
+}
 
 
-void PostDataToMOX(string FilePath, string MOXID)
+string GetBaseUrl()
+{
+    if (GetEnv() == "dev")
+    {
+        return "localhost:5000";
+    }
+
+    return "https://www.mox.shopping";
+}
+
+string RemoveBrackets(string s)
+{
+    s.pop_back();
+    s.erase(0,1);
+    return s;
+}
+
+string StantizeString(string s)
+{
+    std::regex newlines_re("\n+");
+
+    s =  std::regex_replace(s, newlines_re, "");
+    std::regex string_re("\"");
+    string space = " ";
+    if (space.compare(&s[0]))
+    {
+        s.erase(0,1);
+    }
+    return std::regex_replace(s, string_re, "");
+
+}
+
+vector<std::string> ParseKeyValue(string KeyValue)
+{
+
+    string delimiter = ":";
+
+    size_t pos = 0;
+    string key;
+    string value;
+    while ((pos = KeyValue.find(delimiter)) != string::npos) {
+        key = KeyValue.substr(0, pos);
+        KeyValue.erase(0, pos + delimiter.length());
+
+    }
+    //    UTILITY_API->DisplayMessageBox(key + ":" + KeyValue);
+    return  std::vector<std::string> { StantizeString(key), StantizeString(KeyValue)};
+}
+
+
+string GetValueFromMetadataString(string SearchKey)
+{
+    SearchKey = "\"" + SearchKey + "\"";
+    string s = RemoveBrackets(UTILITY_API->GetMetaDataForCurrentGarment());
+
+    string delimiter = ",";
+
+    size_t pos = 0;
+    string token;
+    string match = "";
+    vector<std::string> key_value;
+
+    while ((pos = s.find(delimiter)) != string::npos) {
+        token = s.substr(0, pos);
+        key_value = ParseKeyValue(token);
+        if (key_value[0].compare(StantizeString(SearchKey))){
+            return StantizeString(key_value[1]);
+        }
+
+        s.erase(0, pos + delimiter.length());
+    }
+
+    return match;
+}
+
+
+string GenerateUUID(const int len) {
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+    std::string tmp_s;
+    tmp_s.reserve(len);
+
+    for (int i = 0; i < len; ++i) {
+        tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+
+    return tmp_s;
+}
+
+// MOX API Functions
+void UploadFileToMOX(string FilePath, string GarmentUUID)
 {
     if (!REST_API)
         return;
 
     vector<pair<string, string>> headerNameAndValueList;
 
-    if (MOXID.size() > 0)
+    if (GarmentUUID.size() > 0)
     {
-        string ExportUrl = "localhost:5000/api/v1/clo/" + MOXID + "/";
-        if (UTILITY_API)
-             UTILITY_API->DisplayMessageBox(ExportUrl);
+        string ExportUrl = GetBaseUrl() + "/api/v1/clo/" + GarmentUUID + "/";
         string response = REST_API->CallRESTPostWithMultipartFormData(ExportUrl,
                                                                       FilePath, headerNameAndValueList,
                                                                       "Uploading to MOX");
@@ -89,7 +169,36 @@ void PostDataToMOX(string FilePath, string MOXID)
 }
 
 
-vector<std::string> ExportOBJForMOX()
+void PostMetaDataToMOX(string MetaData, string GarmentUUID)
+{
+    if (!REST_API)
+        return;
+
+    vector<pair<string, string>> headerNameAndValueList;
+    headerNameAndValueList.push_back(make_pair("Cache-Control", "no-cache"));
+    headerNameAndValueList.push_back(make_pair("Content-Type", "application/x-www-form-urlencoded"));
+
+    if (GarmentUUID.size() > 0)
+    {
+        string MetaDataURL = GetBaseUrl() + "/api/v1/clo/" + GarmentUUID + "/metadata/";
+
+        string response = REST_API->CallRESTPost(MetaDataURL, &MetaData,  headerNameAndValueList, "HTTP Post2 test");
+    }
+}
+
+
+// CLO Export functions
+
+void SetupAvatar()
+{
+    if (UTILITY_API == nullptr)
+        return;
+
+    UTILITY_API->SetShowHideAvatar(true);
+}
+
+
+vector<std::string> ExportObjectData()
 {
     if (!EXPORT_API)
         return  std::vector<std::string>  { "NoData" };
@@ -110,40 +219,102 @@ vector<std::string> ExportOBJForMOX()
 }
 
 
+vector<std::string> ExportGLTFData()
+{
+    if (!EXPORT_API)
+        return  std::vector<std::string>  { "NoData" };
 
-string gen_random(const int len) {
-    static const char alphanum[] =
-        "0123456789"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "abcdefghijklmnopqrstuvwxyz";
-    std::string tmp_s;
-    tmp_s.reserve(len);
+    Marvelous::ImportExportOption options;
+    options.bExportAvatar = false;
+    options.bExportGarment = true;
+    options.bSaveInZip = false;
 
-    for (int i = 0; i < len; ++i) {
-        tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
-    }
+    // the other options are given as default. please refer to ImportExportOption class in ExportAPI.h
 
-    return tmp_s;
+    vector<string> exportedFilePathList;
+    string baseFolder = getHomePath() + "MOXexport/";
+
+    exportedFilePathList = EXPORT_API->ExportGLTF(baseFolder + "gltf.gltf", options, false);
+
+    return exportedFilePathList;
 }
 
 
+string ExportPoseData()
+{
 
+    string exportPath = getHomePath() + "MOXexport/pose.pose";
+
+    string resultPath = "";
+    if (EXPORT_API)
+        resultPath = EXPORT_API->ExportPose(exportPath);
+    return resultPath;
+
+}
+string GetOrSetGarmentUUID()
+{
+    string GarmentUUIDMetaDataKey = "MOXGarmentUUID";
+
+    string GarmentUUID = GetValueFromMetadataString(GarmentUUIDMetaDataKey);
+
+    UTILITY_API->DisplayMessageBox("GarmentUUID -> " + GarmentUUID + "PREEEE");
+
+    if (GarmentUUID.size() == 0 )
+    {
+        GarmentUUID = GenerateUUID(20);
+        UTILITY_API->ChangeMetaDataValueForCurrentGarment(GarmentUUIDMetaDataKey, GarmentUUID);
+    }
+
+    GarmentUUID = GetValueFromMetadataString(GarmentUUIDMetaDataKey);
+
+    return GarmentUUID;
+
+}
+string ExportTechPack()
+{
+    Marvelous::ExportTechpackOption option(Marvelous::CLO_TECH_PACK);
+    option.m_bSaveZpac = true;
+    option.m_bSaveZprj = true;
+    string exportPath = getHomePath() + "MOXexport/TechPack.zip";
+    EXPORT_API->ExportTechPack(exportPath, option);
+    return exportPath;
+}
+
+
+// MAIN
 void MOXExportAndSave()
 {
-    vector<std::string> ExportPaths = ExportOBJForMOX();
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXLastProcessStart", "");
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXLastProcessFinish", "");
 
-    string MOXID = gen_random(20);
-    for (auto& path: ExportPaths){
-        PostDataToMOX(path, MOXID);
+    //SetupAvatar();
+
+    string GarmentUUID = GetOrSetGarmentUUID();
+
+    string MetaData = UTILITY_API->GetMetaDataForCurrentGarment();
+
+    PostMetaDataToMOX(MetaData, GarmentUUID);
+
+    vector<std::string> ObjPaths = ExportObjectData();
+
+    for (auto& path: ObjPaths){
+        UploadFileToMOX(path, GarmentUUID);
     }
+
+    vector<std::string> GLTFPaths =  ExportGLTFData();
+    for (auto& path: GLTFPaths){
+        UploadFileToMOX(path, GarmentUUID);
+    }
+
+    string TechPackExportPath = ExportTechPack();
+    UploadFileToMOX(TechPackExportPath, GarmentUUID);
 }
 
 
+// CLO plugin functions
 extern CLO_PLUGIN_SPECIFIER void DoFunction()
 {
-
 	MOXExportAndSave();
-	
 }								 	
 
 extern CLO_PLUGIN_SPECIFIER void DoFunctionAfterLoadingCLOFile(const char* fileExtenstion)
@@ -156,7 +327,12 @@ extern CLO_PLUGIN_SPECIFIER const char* GetActionName()
 {
 	const char* actionName = "Plugin";
 
-    actionName = "Export To MOX LOCALHOST";
+    if (GetEnv() == "dev"){
+        actionName = "Export To MOX LOCALHOST";
+    }
+    else {
+        actionName = "Export To MOX Production";
+    }
 
 	return actionName;
 }
