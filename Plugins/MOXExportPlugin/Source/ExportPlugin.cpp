@@ -227,6 +227,7 @@ vector<std::string> ExportObjectData()
     options.bExportGarment = true;
     options.bSaveInZip = false;
     options.bMetaData = true;
+    options.scale = 0.1f; // OBJs need to be stored in m
     // the other options are given as default. please refer to ImportExportOption class in ExportAPI.h
 
     vector<string> exportedFilePathList;
@@ -247,6 +248,8 @@ vector<std::string> ExportGLTFData()
     options.bExportGarment = true;
     options.bSaveInZip = false;
     options.bMetaData = true;
+    options.scale = 0.001f; // GLTFs need to be stored in mm
+
     // the other options are given as default. please refer to ImportExportOption class in ExportAPI.h
 
     vector<string> exportedFilePathList;
