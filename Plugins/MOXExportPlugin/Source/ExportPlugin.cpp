@@ -17,6 +17,8 @@
 #include <iostream>
 #include <unistd.h>
 #include <regex>
+#include <filesystem>
+
 
 
 using namespace std;
@@ -70,6 +72,11 @@ string GetBaseUrl()
     return "https://www.mox.shopping";
 }
 
+string TechPackKey()
+{
+    return "TechPack";
+}
+
 string RemoveBrackets(string s)
 {
     s.pop_back();
@@ -79,16 +86,20 @@ string RemoveBrackets(string s)
 
 string StantizeString(string s)
 {
+    // remove new lines
     std::regex newlines_re("\n+");
-
     s =  std::regex_replace(s, newlines_re, "");
+
+    // remove " single quote
     std::regex string_re("\"");
-    string space = " ";
-    if (space.compare(&s[0]))
-    {
-        s.erase(0,1);
-    }
-    return std::regex_replace(s, string_re, "");
+    s = std::regex_replace(s, string_re, "");
+
+    // remove whitesapce
+    std::regex space_re(" ");
+    s = std::regex_replace(s, space_re, "");
+
+    return s;
+
 
 }
 
@@ -105,7 +116,6 @@ vector<std::string> ParseKeyValue(string KeyValue)
         KeyValue.erase(0, pos + delimiter.length());
 
     }
-    //    UTILITY_API->DisplayMessageBox(key + ":" + KeyValue);
     return  std::vector<std::string> { StantizeString(key), StantizeString(KeyValue)};
 }
 
@@ -125,7 +135,7 @@ string GetValueFromMetadataString(string SearchKey)
     while ((pos = s.find(delimiter)) != string::npos) {
         token = s.substr(0, pos);
         key_value = ParseKeyValue(token);
-        if (key_value[0].compare(StantizeString(SearchKey))){
+        if (StantizeString(key_value[0]).compare(StantizeString(SearchKey)) == 0){
             return StantizeString(key_value[1]);
         }
 
@@ -152,7 +162,7 @@ string GenerateUUID(const int len) {
 }
 
 // MOX API Functions
-void UploadFileToMOX(string FilePath, string GarmentUUID)
+void UploadFileToMOX(string FilePath, string GarmentUUID, string RevisionNumber)
 {
     if (!REST_API)
         return;
@@ -161,7 +171,7 @@ void UploadFileToMOX(string FilePath, string GarmentUUID)
 
     if (GarmentUUID.size() > 0)
     {
-        string ExportUrl = GetBaseUrl() + "/api/v1/clo/" + GarmentUUID + "/";
+        string ExportUrl = GetBaseUrl() + "/api/v1/clo/garment/" + GarmentUUID + "/" + RevisionNumber + "/";
         string response = REST_API->CallRESTPostWithMultipartFormData(ExportUrl,
                                                                       FilePath, headerNameAndValueList,
                                                                       "Uploading to MOX");
@@ -180,11 +190,32 @@ void PostMetaDataToMOX(string MetaData, string GarmentUUID)
 
     if (GarmentUUID.size() > 0)
     {
-        string MetaDataURL = GetBaseUrl() + "/api/v1/clo/" + GarmentUUID + "/metadata/";
+        string MetaDataURL = GetBaseUrl() + "/api/v1/clo/garment/" + GarmentUUID + "/metadata/";
 
-        string response = REST_API->CallRESTPost(MetaDataURL, &MetaData,  headerNameAndValueList, "HTTP Post2 test");
+        string response = REST_API->CallRESTPost(MetaDataURL, &MetaData,  headerNameAndValueList, "Sending MetaData to MOX");
     }
 }
+
+string RequestNewRevision(string GarmentUUID)
+{
+    if (!REST_API)
+        return "";
+
+    vector<pair<string, string>> headerNameAndValueList;
+    headerNameAndValueList.push_back(make_pair("Cache-Control", "no-cache"));
+    headerNameAndValueList.push_back(make_pair("Content-Type", "application/x-www-form-urlencoded"));
+
+    string RevisionURL = GetBaseUrl() + "/api/v1/clo/garment/" + GarmentUUID + "/revision/new/";
+
+    string response = REST_API->CallRESTGet(RevisionURL, headerNameAndValueList, "Requesting a new Garment Revision");
+
+
+    string s = response.c_str();
+    string rev = s.erase(0, s.find(":::") + 3);
+    return rev;
+}
+
+
 
 
 // CLO Export functions
@@ -207,7 +238,7 @@ vector<std::string> ExportObjectData()
     options.bExportAvatar = false;
     options.bExportGarment = true;
     options.bSaveInZip = false;
-
+    options.bMetaData = true;
     // the other options are given as default. please refer to ImportExportOption class in ExportAPI.h
 
     vector<string> exportedFilePathList;
@@ -228,7 +259,7 @@ vector<std::string> ExportGLTFData()
     options.bExportAvatar = false;
     options.bExportGarment = true;
     options.bSaveInZip = false;
-
+    options.bMetaData = true;
     // the other options are given as default. please refer to ImportExportOption class in ExportAPI.h
 
     vector<string> exportedFilePathList;
@@ -257,7 +288,6 @@ string GetOrSetGarmentUUID()
 
     string GarmentUUID = GetValueFromMetadataString(GarmentUUIDMetaDataKey);
 
-    UTILITY_API->DisplayMessageBox("GarmentUUID -> " + GarmentUUID + "PREEEE");
 
     if (GarmentUUID.size() == 0 )
     {
@@ -268,46 +298,78 @@ string GetOrSetGarmentUUID()
     GarmentUUID = GetValueFromMetadataString(GarmentUUIDMetaDataKey);
 
     return GarmentUUID;
-
 }
-string ExportTechPack()
+
+vector<std::string> ComputeTechPackPaths(string BaseUri)
+{
+    vector<std::string> paths;
+    vector<std::string> ExportedObjectExtensions {".json", ".zprj", ".zpac", ".png"};
+    for (auto& ext: ExportedObjectExtensions){
+        paths.push_back(BaseUri + TechPackKey() + ext);
+    }
+    return paths;
+}
+
+vector<std::string> ExportTechPack()
 {
     Marvelous::ExportTechpackOption option(Marvelous::CLO_TECH_PACK);
     option.m_bSaveZpac = true;
     option.m_bSaveZprj = true;
-    string exportPath = getHomePath() + "MOXexport/TechPack.zip";
-    EXPORT_API->ExportTechPack(exportPath, option);
-    return exportPath;
+
+    string exportRoot = getHomePath() + "MOXexport/" ;
+    EXPORT_API->ExportTechPack(exportRoot + TechPackKey() + ".json", option);
+
+    return ComputeTechPackPaths(exportRoot);
 }
+
+
 
 
 // MAIN
 void MOXExportAndSave()
 {
-    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXLastProcessStart", "");
-    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXLastProcessFinish", "");
+    // Setup
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXManaged", "True");
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXStored", "True");
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("ProjectName", UTILITY_API->GetProjectName());
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MajorVersion", to_string(UTILITY_API->GetMajorVersion()));
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MinorVersion", to_string(UTILITY_API->GetMinorVersion()));
+    UTILITY_API->ChangeMetaDataValueForCurrentGarment("PatchVersion", to_string(UTILITY_API->GetPatchVersion()));
 
-    //SetupAvatar();
 
+    //
+    //UTILITY_API->ResetClothArrangement();
+
+
+    // Get the UUID from metadata or create one if first time
     string GarmentUUID = GetOrSetGarmentUUID();
 
+    // Get the raw metadata
     string MetaData = UTILITY_API->GetMetaDataForCurrentGarment();
 
     PostMetaDataToMOX(MetaData, GarmentUUID);
 
+    // Setup New Revision to assciate data with
+    string RevisionNumber = RequestNewRevision(GarmentUUID);
+
+    // Actually export all the data
     vector<std::string> ObjPaths = ExportObjectData();
-
     for (auto& path: ObjPaths){
-        UploadFileToMOX(path, GarmentUUID);
+        UploadFileToMOX(path, GarmentUUID, RevisionNumber);
     }
-
     vector<std::string> GLTFPaths =  ExportGLTFData();
     for (auto& path: GLTFPaths){
-        UploadFileToMOX(path, GarmentUUID);
+        UploadFileToMOX(path, GarmentUUID, RevisionNumber);
+    }
+    vector<std::string> TechPackExportPaths = ExportTechPack();
+    for (auto& path: TechPackExportPaths){
+        UTILITY_API->DisplayMessageBox("export of Techpack -> " + path );
+        UploadFileToMOX(path, GarmentUUID, RevisionNumber);
     }
 
-    string TechPackExportPath = ExportTechPack();
-    UploadFileToMOX(TechPackExportPath, GarmentUUID);
+
+    UTILITY_API->DisplayMessageBox("Successful Upload to MOX Garment: " + GarmentUUID + ", Revision: " + RevisionNumber);
+
 }
 
 
@@ -315,6 +377,7 @@ void MOXExportAndSave()
 extern CLO_PLUGIN_SPECIFIER void DoFunction()
 {
 	MOXExportAndSave();
+
 }								 	
 
 extern CLO_PLUGIN_SPECIFIER void DoFunctionAfterLoadingCLOFile(const char* fileExtenstion)
