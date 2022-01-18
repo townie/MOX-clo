@@ -23,6 +23,23 @@ using namespace std;
 using namespace CLOAPI;
 
 // Utility Functions
+static std::string base64_encode(const std::string &in) {
+
+    std::string out;
+
+    int val = 0, valb = -6;
+    for (unsigned char c : in) {
+        val = (val << 8) + c;
+        valb += 8;
+        while (valb >= 0) {
+            out.push_back("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) out.push_back("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (out.size() % 4) out.push_back('=');
+    return out;
+}
 
 string getHomePath()
 {
@@ -158,6 +175,35 @@ string GenerateUUID(const int len)
     return tmp_s;
 }
 
+string GetAuthFile()
+{   string ReaderBuffer;
+    string Output;
+    string configPath = getHomePath() + "/.mox_clo/config.txt";
+    ifstream ConfigFile(configPath);
+    // Use a while loop together with the getline() function to read the file line by line
+    while (getline (ConfigFile, ReaderBuffer)) {
+      // Output the text from the file
+        Output = Output + ReaderBuffer;
+    }
+    ConfigFile.close();
+    return Output;
+}
+
+
+string GetAuthHeaders()
+{
+    string id = "Test"; // set the clo id
+    string pw = "Test"; // set the clo pw with md5 hashed in lower cases
+    string creds = GetAuthFile();
+    if (creds.size() < 1)
+        creds = base64_encode(id + ":" + pw);
+
+    string basicAuthorizationString = "Basic " + creds;
+
+    return basicAuthorizationString;
+}
+
+
 // MOX API Functions
 void UploadFileToMOX(string FilePath, string GarmentUUID, string RevisionNumber)
 {
@@ -165,10 +211,12 @@ void UploadFileToMOX(string FilePath, string GarmentUUID, string RevisionNumber)
         return;
 
     vector<pair<string, string>> headerNameAndValueList;
+    headerNameAndValueList.push_back(make_pair("Authorization", GetAuthHeaders()));
+
 
     if (GarmentUUID.size() > 0)
     {
-        string ExportUrl = GetBaseUrl() + "/api/v1/clo/garment/" + GarmentUUID + "/" + RevisionNumber + "/";
+        string ExportUrl = GetBaseUrl() + "/api/external/v1/clo/garment/" + GarmentUUID + "/" + RevisionNumber + "/";
         string response = REST_API->CallRESTPostWithMultipartFormData(ExportUrl, FilePath, headerNameAndValueList, "Uploading to MOX");
     }
 }
@@ -181,10 +229,11 @@ void PostMetaDataToMOX(string MetaData, string GarmentUUID)
     vector<pair<string, string>> headerNameAndValueList;
     headerNameAndValueList.push_back(make_pair("Cache-Control", "no-cache"));
     headerNameAndValueList.push_back(make_pair("Content-Type", "application/x-www-form-urlencoded"));
+    headerNameAndValueList.push_back(make_pair("Authorization", GetAuthHeaders()));
 
     if (GarmentUUID.size() > 0)
     {
-        string MetaDataURL = GetBaseUrl() + "/api/v1/clo/garment/" + GarmentUUID + "/metadata/";
+        string MetaDataURL = GetBaseUrl() + "/api/external/v1/clo/garment/" + GarmentUUID + "/metadata/";
 
         string response = REST_API->CallRESTPost(MetaDataURL, &MetaData, headerNameAndValueList, "Sending MetaData to MOX");
     }
@@ -198,8 +247,9 @@ string RequestNewRevision(string GarmentUUID)
     vector<pair<string, string>> headerNameAndValueList;
     headerNameAndValueList.push_back(make_pair("Cache-Control", "no-cache"));
     headerNameAndValueList.push_back(make_pair("Content-Type", "application/x-www-form-urlencoded"));
+    headerNameAndValueList.push_back(make_pair("Authorization", GetAuthHeaders()));
 
-    string RevisionURL = GetBaseUrl() + "/api/v1/clo/garment/" + GarmentUUID + "/revision/new/";
+    string RevisionURL = GetBaseUrl() + "/api/external/v1/clo/garment/" + GarmentUUID + "/revision/new/";
 
     string response = REST_API->CallRESTGet(RevisionURL, headerNameAndValueList, "Requesting a new Garment Revision");
 
@@ -207,6 +257,18 @@ string RequestNewRevision(string GarmentUUID)
     string rev = s.erase(0, s.find(":::") + 3);
     return rev;
 }
+
+void SetRevision(string GarmentUUID, string RevisionNumber)
+{
+    vector<pair<string, string>> headerNameAndValueList;
+    headerNameAndValueList.push_back(make_pair("Cache-Control", "no-cache"));
+    headerNameAndValueList.push_back(make_pair("Authorization", GetAuthHeaders()));
+
+    string RevisionURL = GetBaseUrl() + "/api/external/v1/clo/garment/" + GarmentUUID + "/revision/" + RevisionNumber+ "/";
+
+    string response = REST_API->CallRESTGet(RevisionURL, headerNameAndValueList, "Setting a new Garment Revision");
+}
+
 
 // CLO Export functions
 void SetupAvatar()
@@ -233,7 +295,7 @@ vector<std::string> ExportObjectData()
     vector<string> exportedFilePathList;
     string baseFolder = getHomePath() + "MOXexport/";
 
-    exportedFilePathList = EXPORT_API->ExportOBJ(options);
+    exportedFilePathList = EXPORT_API->ExportOBJ(baseFolder + "obj.obj", options);
 
     return exportedFilePathList;
 }
@@ -300,19 +362,41 @@ vector<std::string> ExportTechPack()
     return ComputeTechPackPaths(exportRoot);
 }
 
-// MAIN
-void MOXExportAndSave()
+void CaptureMoxMetadata()
 {
-    // Setup
     UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXManaged", "True");
-    UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXStored", "True");
     UTILITY_API->ChangeMetaDataValueForCurrentGarment("ProjectName", UTILITY_API->GetProjectName());
     UTILITY_API->ChangeMetaDataValueForCurrentGarment("MajorVersion", to_string(UTILITY_API->GetMajorVersion()));
     UTILITY_API->ChangeMetaDataValueForCurrentGarment("MinorVersion", to_string(UTILITY_API->GetMinorVersion()));
     UTILITY_API->ChangeMetaDataValueForCurrentGarment("PatchVersion", to_string(UTILITY_API->GetPatchVersion()));
+}
 
-    //
-    //UTILITY_API->ResetClothArrangement();
+void CaptureAvatarMetadata()
+{
+    vector<string> avatarNameList = EXPORT_API->GetAvatarNameList();
+    vector<int> avatarGenderList = EXPORT_API->GetAvatarGenderList();
+
+    if (avatarNameList.size() == avatarGenderList.size()){
+        for (size_t i = 0; i < avatarNameList.size(); ++i)
+        {
+            UTILITY_API->ChangeMetaDataValueForCurrentGarment("Avatar_" + to_string(i) + ":Name:", avatarNameList[i]);
+
+            if (avatarGenderList[i] == 0)
+                UTILITY_API->ChangeMetaDataValueForCurrentGarment("Avatar_" + to_string(i) + ":Gender:", "male");
+            else if (avatarGenderList[i] == 1)
+                UTILITY_API->ChangeMetaDataValueForCurrentGarment("Avatar_" + to_string(i) + ":Gender:", "female");
+        }
+    }
+}
+
+
+// MAIN
+void MOXExportAndSave()
+{
+    // Setup
+    CaptureMoxMetadata();
+    CaptureAvatarMetadata();
+
 
     // Get the UUID from metadata or create one if first time
     string GarmentUUID = GetOrSetGarmentUUID();
@@ -342,8 +426,11 @@ void MOXExportAndSave()
         UploadFileToMOX(path, GarmentUUID, RevisionNumber);
     }
 
-    UTILITY_API->DisplayMessageBox("Successful Upload to MOX Garment: " + GarmentUUID + ", Revision: " + RevisionNumber);
+    SetRevision(GarmentUUID, RevisionNumber);
+   // UTILITY_API->DisplayMessageBox("Successful Upload to MOX Garment: " + GarmentUUID + ", Revision: " + RevisionNumber);
     UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXGarmentRevision", RevisionNumber);
+
+
 }
 
 // CLO plugin functions
