@@ -72,8 +72,9 @@ string getHomePath()
 string GetEnv()
 {
     // Make this dynamic
-    // return "prod";
+    //return "prod";
     return "dev";
+
 }
 
 string GetBaseUrl()
@@ -83,7 +84,7 @@ string GetBaseUrl()
         return "localhost:5000";
     }
 
-    return "https://www.mox.shopping";
+    return "3.84.187.129";
 }
 
 string TechPackKey()
