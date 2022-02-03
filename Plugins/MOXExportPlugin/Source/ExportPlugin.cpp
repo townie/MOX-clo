@@ -17,7 +17,8 @@
 #include <iostream>
 #include <unistd.h>
 #include <regex>
-#include <filesystem>
+#include <experimental/filesystem>
+
 
 using namespace std;
 using namespace CLOAPI;
@@ -67,6 +68,15 @@ string getHomePath()
 #endif
 
     return homePath;
+}
+
+
+void EnsureExportDir()
+{
+    if (!std::experimental::filesystem::exists(getHomePath() + "/MOXExport/"))
+    {
+        std::experimental::filesystem::create_directories(getHomePath() + "/MOXExport/");
+    }
 }
 
 string GetEnv()
@@ -390,14 +400,33 @@ void CaptureAvatarMetadata()
     }
 }
 
+void UploadExtras(string GarmentUUID, string RevisionNumber)
+{
+    string exportRoot = getHomePath() + "MOXexport/";
+    for (const auto & entry : std::experimental::filesystem::directory_iterator(exportRoot))
+    {
+
+        UploadFileToMOX(entry.path(), GarmentUUID, RevisionNumber);
+    }
+
+}
+
+void CleanUp()
+{
+    string exportRoot = getHomePath() + "MOXexport/";
+
+    for (const auto& entry : std::experimental::filesystem::directory_iterator(exportRoot))
+        std::experimental::filesystem::remove_all(entry.path());
+}
 
 // MAIN
 void MOXExportAndSave()
 {
+    CleanUp();
     // Setup
     CaptureMoxMetadata();
     CaptureAvatarMetadata();
-
+    EnsureExportDir();
 
     // Get the UUID from metadata or create one if first time
     string GarmentUUID = GetOrSetGarmentUUID();
@@ -430,6 +459,8 @@ void MOXExportAndSave()
     SetRevision(GarmentUUID, RevisionNumber);
    // UTILITY_API->DisplayMessageBox("Successful Upload to MOX Garment: " + GarmentUUID + ", Revision: " + RevisionNumber);
     UTILITY_API->ChangeMetaDataValueForCurrentGarment("MOXGarmentRevision", RevisionNumber);
+
+    UploadExtras(GarmentUUID, RevisionNumber);
 
 
 }
